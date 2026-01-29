@@ -17,11 +17,28 @@ const SHEET_HEIGHT = 280;
 /**
  * SeatBottomSheet - Slide-up panel for seat quick-view
  * @param {object} props
- * @param {object} props.seat - Seat data { id, status, label, hasOutlet, isQuietZone }
+ * @param {object} props.seat - Seat data { id, status, label, has_power, is_quiet_zone, has_lamp, has_ergo_chair, has_wifi, wifi_speed, zone, room }
  * @param {boolean} props.visible - Whether sheet is visible
  * @param {function} props.onClose - Close handler
  * @param {function} props.onBookNow - Book now handler
  */
+
+// Amenity configuration for dynamic display
+const AMENITY_CONFIG = {
+    has_power: { icon: 'power', label: 'Power' },
+    has_lamp: { icon: 'lightbulb', label: 'Lamp' },
+    has_ergo_chair: { icon: 'chair-alt', label: 'Ergo Chair' },
+    has_wifi: { icon: 'wifi', label: 'WiFi' },
+    is_quiet_zone: { icon: 'volume-off', label: 'Quiet Zone' },
+};
+
+const WIFI_SPEED_LABELS = {
+    'basic': 'Basic',
+    'standard': 'Standard',
+    'high-speed': 'High-Speed',
+    'gigabit': 'Gigabit',
+};
+
 const SeatBottomSheet = ({ seat, visible, onClose, onBookNow }) => {
     const { colors, isDark } = useTheme();
     const translateY = useSharedValue(SHEET_HEIGHT);
@@ -74,6 +91,38 @@ const SeatBottomSheet = ({ seat, visible, onClose, onBookNow }) => {
         }
     };
 
+    // Build amenities array from seat data
+    const getAmenities = () => {
+        const amenities = [];
+        Object.keys(AMENITY_CONFIG).forEach(key => {
+            if (seat[key]) {
+                const config = { ...AMENITY_CONFIG[key] };
+                // Special handling for WiFi to show speed
+                if (key === 'has_wifi' && seat.wifi_speed) {
+                    config.label = WIFI_SPEED_LABELS[seat.wifi_speed] || 'WiFi';
+                }
+                amenities.push(config);
+            }
+        });
+        return amenities;
+    };
+
+    // Get location string from seat data
+    const getLocationString = () => {
+        const parts = [];
+        if (seat.room?.floor?.floor_name) {
+            parts.push(seat.room.floor.floor_name);
+        } else if (seat.floor) {
+            parts.push(`Floor ${seat.floor}`);
+        }
+        if (seat.room?.room_name) {
+            parts.push(seat.room.room_name);
+        } else if (seat.zone && seat.zone !== 'General') {
+            parts.push(seat.zone);
+        }
+        return parts.length > 0 ? parts.join(' • ') : 'Study Area';
+    };
+
     return (
         <>
             {/* Backdrop */}
@@ -110,7 +159,7 @@ const SeatBottomSheet = ({ seat, visible, onClose, onBookNow }) => {
                                         Seat {seat.label || seat.id}
                                     </Text>
                                     <Text style={[styles.location, { color: colors.textSecondary }]}>
-                                        Floor 1 • Zone A
+                                        {getLocationString()}
                                     </Text>
                                 </View>
                             </View>
@@ -123,20 +172,18 @@ const SeatBottomSheet = ({ seat, visible, onClose, onBookNow }) => {
                         </View>
 
                         {/* Amenities */}
-                        <View style={styles.amenities}>
-                            <View style={[styles.amenityChip, { backgroundColor: colors.surfaceSecondary }]}>
-                                <MaterialIcons name="power" size={16} color={colors.textSecondary} />
-                                <Text style={[styles.amenityText, { color: colors.textSecondary }]}>
-                                    Power
-                                </Text>
+                        {getAmenities().length > 0 && (
+                            <View style={styles.amenities}>
+                                {getAmenities().map((amenity, index) => (
+                                    <View key={index} style={[styles.amenityChip, { backgroundColor: colors.surfaceSecondary }]}>
+                                        <MaterialIcons name={amenity.icon} size={16} color={colors.textSecondary} />
+                                        <Text style={[styles.amenityText, { color: colors.textSecondary }]}>
+                                            {amenity.label}
+                                        </Text>
+                                    </View>
+                                ))}
                             </View>
-                            <View style={[styles.amenityChip, { backgroundColor: colors.surfaceSecondary }]}>
-                                <MaterialIcons name="volume-off" size={16} color={colors.textSecondary} />
-                                <Text style={[styles.amenityText, { color: colors.textSecondary }]}>
-                                    Quiet Zone
-                                </Text>
-                            </View>
-                        </View>
+                        )}
 
                         {/* Actions */}
                         <View style={styles.actions}>

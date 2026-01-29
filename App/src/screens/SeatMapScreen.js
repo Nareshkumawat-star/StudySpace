@@ -14,11 +14,11 @@ import { useLocation } from '../context/LocationContext';
 import { selectionChanged, lightImpact } from '../utils/haptics';
 import SeatBottomSheet from '../components/SeatBottomSheet';
 import { SkeletonMapGrid } from '../components/SkeletonLoader';
-import { getSeatHeatmap } from '../services/api';
+import { getSeatHeatmap, getLibraryFloors, getLibrarySeatHeatmap } from '../services/api';
 
-// Transform API data to include aisles for grid layout
+// Transform API data - group by rows for proper grid display
 const transformSeatsForGrid = (seats) => {
-    if (!seats || seats.length === 0) return [];
+    if (!seats || seats.length === 0) return { rows: [], allSeats: [] };
 
     // Group seats by row (first character of label)
     const grouped = {};
@@ -28,20 +28,16 @@ const transformSeatsForGrid = (seats) => {
         grouped[row].push(seat);
     });
 
-    // Add aisles after position 3 in each row
-    const result = [];
-    Object.keys(grouped).sort().forEach((row, rowIndex) => {
-        const rowSeats = grouped[row].sort((a, b) => a.label.localeCompare(b.label));
-        rowSeats.forEach((seat, i) => {
-            result.push(seat);
-            if (i === 2) { // After 3rd seat in row
-                result.push({ id: `aisle${rowIndex}a`, type: 'aisle' });
-                result.push({ id: `aisle${rowIndex}b`, type: 'aisle' });
-            }
+    // Sort each row's seats by number
+    const rows = Object.keys(grouped).sort().map(rowKey => {
+        return grouped[rowKey].sort((a, b) => {
+            const numA = parseInt(a.label.slice(1)) || 0;
+            const numB = parseInt(b.label.slice(1)) || 0;
+            return numA - numB;
         });
     });
 
-    return result;
+    return { rows, allSeats: seats };
 };
 
 // Animated Seat Component with Pulse
@@ -116,13 +112,57 @@ const SeatMapScreen = ({ navigation }) => {
     const { selectedLibrary } = useLibrary();
     const { locationStatus, setTargetLibrary, refreshLocation, userLocation, distanceToLibrary } = useLocation();
     const [selectedSeat, setSelectedSeat] = useState(null);
-    const [currentFloor, setCurrentFloor] = useState('Floor 1');
+    const [floors, setFloors] = useState([]);
+    const [currentFloor, setCurrentFloor] = useState(null);
     const [zoom, setZoom] = useState(1);
     const [isLoading, setIsLoading] = useState(true);
+    const [floorsLoading, setFloorsLoading] = useState(true);
     const [showBottomSheet, setShowBottomSheet] = useState(false);
-    const [seatsData, setSeatsData] = useState([]);
+    const [seatsData, setSeatsData] = useState({ rows: [], allSeats: [] });
     const [apiError, setApiError] = useState(null);
     const [isLive, setIsLive] = useState(false);
+
+    // Fetch floors for selected library
+    useEffect(() => {
+        const fetchFloors = async () => {
+            if (!selectedLibrary?.id) {
+                setFloors([]);
+                setFloorsLoading(false);
+                return;
+            }
+            
+            setFloorsLoading(true);
+            try {
+                const { data, error } = await getLibraryFloors(selectedLibrary.id);
+                if (error) {
+                    console.error('Error fetching floors:', error);
+                    setFloors([]);
+                } else if (data && data.length > 0) {
+                    setFloors(data);
+                    // Select first floor by default
+                    if (!currentFloor) {
+                        setCurrentFloor(data[0]);
+                    }
+                } else {
+                    // Fallback to default floors if none defined
+                    setFloors([
+                        { id: 'default-1', floor_number: 1, floor_name: 'Floor 1' },
+                        { id: 'default-2', floor_number: 2, floor_name: 'Floor 2' },
+                    ]);
+                    if (!currentFloor) {
+                        setCurrentFloor({ id: 'default-1', floor_number: 1, floor_name: 'Floor 1' });
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching floors:', err);
+                setFloors([]);
+            } finally {
+                setFloorsLoading(false);
+            }
+        };
+
+        fetchFloors();
+    }, [selectedLibrary?.id]);
 
     // Sync selected library with location context and refresh location
     useEffect(() => {
@@ -134,28 +174,41 @@ const SeatMapScreen = ({ navigation }) => {
 
     // Fetch seats from API
     const fetchSeats = useCallback(async () => {
+        if (!currentFloor) return;
+        
         setIsLoading(true);
         setApiError(null);
 
         try {
-            const floorNumber = parseInt(currentFloor.replace('Floor ', '')) || 1;
-            const { data, error } = await getSeatHeatmap(floorNumber);
+            let data, error;
+            
+            // Use library-specific seat fetch if we have a library selected
+            // Check if it's a real floor (numeric id) vs fallback (string id starting with 'default-')
+            const isRealFloor = currentFloor?.id && typeof currentFloor.id === 'number';
+            
+            if (selectedLibrary?.id && isRealFloor) {
+                ({ data, error } = await getLibrarySeatHeatmap(selectedLibrary.id, currentFloor.id));
+            } else {
+                // Fallback to floor-based fetch
+                const floorNumber = currentFloor?.floor_number || 1;
+                ({ data, error } = await getSeatHeatmap(floorNumber));
+            }
 
             if (error) {
                 setApiError(error.message || 'Failed to load seats');
-                setSeatsData([]);
+                setSeatsData({ rows: [], allSeats: [] });
             } else if (data && data.length > 0) {
                 setSeatsData(transformSeatsForGrid(data));
             } else {
-                setSeatsData([]);
+                setSeatsData({ rows: [], allSeats: [] });
             }
         } catch (err) {
             setApiError(err.message || 'Failed to connect to server');
-            setSeatsData([]);
+            setSeatsData({ rows: [], allSeats: [] });
         } finally {
             setIsLoading(false);
         }
-    }, [currentFloor]);
+    }, [currentFloor, selectedLibrary?.id]);
 
     // Handle real-time seat updates
     const handleSeatUpdate = useCallback((change) => {
@@ -164,12 +217,13 @@ const SeatMapScreen = ({ navigation }) => {
         if (!seat || !seat.id) return;
 
         setSeatsData(prev => {
-            return prev.map(s => {
-                if (s.id === seat.id) {
-                    return { ...s, status: seat.status };
-                }
-                return s;
-            });
+            const newRows = prev.rows.map(row => 
+                row.map(s => s.id === seat.id ? { ...s, status: seat.status } : s)
+            );
+            const newAllSeats = prev.allSeats.map(s => 
+                s.id === seat.id ? { ...s, status: seat.status } : s
+            );
+            return { rows: newRows, allSeats: newAllSeats };
         });
 
         // Brief flash to indicate update
@@ -224,33 +278,36 @@ const SeatMapScreen = ({ navigation }) => {
 
     // Memoized seat statistics
     const seatStats = useMemo(() => {
-        const actualSeats = seatsData.filter(s => s.type !== 'aisle');
+        const allSeats = seatsData.allSeats || [];
         return {
-            available: actualSeats.filter(s => s.status === 'available').length,
-            occupied: actualSeats.filter(s => s.status === 'occupied').length,
-            reserved: actualSeats.filter(s => s.status === 'reserved').length,
-            total: actualSeats.length,
+            available: allSeats.filter(s => s.status === 'available').length,
+            occupied: allSeats.filter(s => s.status === 'occupied').length,
+            reserved: allSeats.filter(s => s.status === 'reserved').length,
+            total: allSeats.length,
         };
     }, [seatsData]);
 
     const getSelectedSeatData = () => {
-        return seatsData.find(s => s.id === selectedSeat);
+        return seatsData.allSeats?.find(s => s.id === selectedSeat);
     };
 
-    const renderSeat = ({ item }) => {
-        if (item.type === 'aisle') {
-            return <View style={styles.aisle} />;
-        }
+    // Render a single seat
+    const renderSeat = (seat) => (
+        <AnimatedSeat
+            key={seat.id}
+            item={seat}
+            isSelected={selectedSeat === seat.id}
+            onPress={() => handleSeatPress(seat)}
+            colors={colors}
+        />
+    );
 
-        return (
-            <AnimatedSeat
-                item={item}
-                isSelected={selectedSeat === item.id}
-                onPress={() => handleSeatPress(item)}
-                colors={colors}
-            />
-        );
-    };
+    // Render a row of seats
+    const renderRow = (rowSeats, rowIndex) => (
+        <View key={`row-${rowIndex}`} style={styles.seatRow}>
+            {rowSeats.map(seat => renderSeat(seat))}
+        </View>
+    );
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -296,30 +353,50 @@ const SeatMapScreen = ({ navigation }) => {
 
             {/* Floor Selection */}
             <View style={[styles.floorSelection, { backgroundColor: colors.background }]}>
-                <View style={[styles.floorTabs, { borderBottomColor: colors.border }]}>
-                    {['Floor 1', 'Floor 2', 'Mezzanine'].map((floor) => (
-                        <TouchableOpacity
-                            key={floor}
-                            onPress={() => handleFloorChange(floor)}
-                            style={[styles.floorTab, currentFloor === floor && { borderBottomColor: colors.primary }]}
-                        >
-                            <Text style={[
-                                styles.floorTabText,
-                                { color: colors.textSecondary },
-                                currentFloor === floor && { color: colors.primary }
-                            ]}>
-                                {floor}
-                            </Text>
-                        </TouchableOpacity>
-                    ))}
-                </View>
+                {floorsLoading ? (
+                    <View style={styles.floorTabsLoading}>
+                        <ActivityIndicator size="small" color={colors.primary} />
+                        <Text style={[styles.floorTabsLoadingText, { color: colors.textSecondary }]}>Loading floors...</Text>
+                    </View>
+                ) : floors.length > 0 ? (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.floorTabsScroll}>
+                        <View style={[styles.floorTabs, { borderBottomColor: colors.border }]}>
+                            {floors.map((floor) => (
+                                <TouchableOpacity
+                                    key={floor.id}
+                                    onPress={() => handleFloorChange(floor)}
+                                    style={[
+                                        styles.floorTab, 
+                                        currentFloor?.id === floor.id && { borderBottomColor: colors.primary }
+                                    ]}
+                                >
+                                    <Text style={[
+                                        styles.floorTabText,
+                                        { color: colors.textSecondary },
+                                        currentFloor?.id === floor.id && { color: colors.primary }
+                                    ]}>
+                                        {floor.floor_name || `Floor ${floor.floor_number}`}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </ScrollView>
+                ) : (
+                    <View style={styles.noFloorsMessage}>
+                        <Text style={[styles.noFloorsText, { color: colors.textSecondary }]}>
+                            No floors configured
+                        </Text>
+                    </View>
+                )}
             </View>
 
             {/* Map Content */}
             <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
                 <View style={[styles.mapContainer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
                     <View style={styles.mapHeader}>
-                        <Text style={[styles.zoneLabel, { color: colors.textMuted }]}>Zone A: Quiet Study</Text>
+                        <Text style={[styles.zoneLabel, { color: colors.textMuted }]}>
+                            {seatStats.total > 0 ? `${seatStats.available} of ${seatStats.total} Available` : 'Seat Map'}
+                        </Text>
                         <View style={[
                             styles.liveBadge,
                             { backgroundColor: isLive ? 'rgba(34, 197, 94, 0.15)' : colors.primaryLight }
@@ -334,7 +411,7 @@ const SeatMapScreen = ({ navigation }) => {
                     {/* Grid */}
                     {isLoading ? (
                         <SkeletonMapGrid rows={4} cols={6} />
-                    ) : apiError || seatsData.length === 0 ? (
+                    ) : apiError || seatsData.rows.length === 0 ? (
                         <View style={styles.emptyState}>
                             <MaterialIcons
                                 name={apiError ? "wifi-off" : "event-seat"}
@@ -356,14 +433,15 @@ const SeatMapScreen = ({ navigation }) => {
                             </TouchableOpacity>
                         </View>
                     ) : (
-                        <FlatList
-                            data={seatsData}
-                            renderItem={renderSeat}
-                            keyExtractor={item => item.id}
-                            numColumns={8}
-                            scrollEnabled={false}
-                            contentContainerStyle={{ transform: [{ scale: zoom }], alignItems: 'stretch' }}
-                        />
+                        <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.gridScrollContainer}
+                        >
+                            <View style={[styles.seatGrid, { transform: [{ scale: zoom }] }]}>
+                                {seatsData.rows.map((row, index) => renderRow(row, index))}
+                            </View>
+                        </ScrollView>
                     )}
 
                     {/* Controls */}
@@ -400,17 +478,17 @@ const SeatMapScreen = ({ navigation }) => {
             <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
                 <Text style={[styles.legendTitle, { color: colors.textSecondary }]}>Availability Legend</Text>
                 <View style={styles.legendRow}>
-                    <View style={styles.legendItem}>
+                    <View style={[styles.legendItem, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#f1f5f9' }]}>
                         <View style={[styles.legendDot, { backgroundColor: colors.available }]} />
-                        <Text style={[styles.legendText, { color: colors.text }]}>Available ✓</Text>
+                        <Text style={[styles.legendText, { color: colors.text }]}>Available</Text>
                     </View>
-                    <View style={styles.legendItem}>
+                    <View style={[styles.legendItem, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#f1f5f9' }]}>
                         <View style={[styles.legendDot, { backgroundColor: colors.reserved }]} />
-                        <Text style={[styles.legendText, { color: colors.text }]}>Reserved ○</Text>
+                        <Text style={[styles.legendText, { color: colors.text }]}>Reserved</Text>
                     </View>
-                    <View style={styles.legendItem}>
+                    <View style={[styles.legendItem, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#f1f5f9' }]}>
                         <View style={[styles.legendDot, { backgroundColor: colors.occupied }]} />
-                        <Text style={[styles.legendText, { color: colors.text }]}>Occupied ✕</Text>
+                        <Text style={[styles.legendText, { color: colors.text }]}>Occupied</Text>
                     </View>
                 </View>
 
@@ -503,19 +581,41 @@ const styles = StyleSheet.create({
     floorTabTextActive: {
         color: '#3b82f6',
     },
+    floorTabsScroll: {
+        flexGrow: 0,
+    },
+    floorTabsLoading: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 16,
+        gap: 8,
+    },
+    floorTabsLoadingText: {
+        fontSize: 14,
+    },
+    noFloorsMessage: {
+        paddingVertical: 16,
+        alignItems: 'center',
+    },
+    noFloorsText: {
+        fontSize: 14,
+    },
     scrollView: {
         flex: 1,
     },
     scrollContent: {
-        padding: 24,
+        padding: 16,
+        paddingBottom: 24,
         alignItems: 'center',
     },
     mapContainer: {
         width: '100%',
-        maxWidth: 384,
+        maxWidth: 400,
         backgroundColor: '#f1f5f9',
         borderRadius: 16,
-        padding: 24,
+        padding: 16,
+        paddingBottom: 50,
         borderWidth: 1,
         borderColor: '#e2e8f0',
     },
@@ -551,17 +651,41 @@ const styles = StyleSheet.create({
         borderRadius: 3,
     },
     aisle: {
-        flex: 1,
-        margin: 4,
-        aspectRatio: 1,
+        width: 16,
+        margin: 3,
+    },
+    emptySeat: {
+        width: 48,
+        height: 48,
+        margin: 5,
+    },
+    gridScrollContainer: {
+        flexGrow: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 16,
+        paddingHorizontal: 8,
+    },
+    seatGrid: {
+        alignItems: 'center',
+    },
+    seatRow: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        marginVertical: 6,
     },
     seat: {
-        flex: 1,
-        margin: 4,
-        aspectRatio: 1,
-        borderRadius: 8,
+        width: 48,
+        height: 48,
+        margin: 5,
+        borderRadius: 12,
         alignItems: 'center',
         justifyContent: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3,
+        elevation: 2,
     },
     seatAvailable: {
         backgroundColor: '#4ade80',
@@ -576,14 +700,17 @@ const styles = StyleSheet.create({
         backgroundColor: '#3b82f6',
     },
     seatLabel: {
-        fontSize: 10,
+        fontSize: 13,
         fontWeight: '700',
         color: 'white',
+        textShadowColor: 'rgba(0, 0, 0, 0.2)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 2,
     },
     statusIcon: {
-        fontSize: 8,
-        color: 'rgba(255, 255, 255, 0.8)',
-        marginTop: 1,
+        fontSize: 10,
+        color: 'rgba(255, 255, 255, 0.9)',
+        marginTop: 2,
     },
     controls: {
         position: 'absolute',
@@ -611,14 +738,14 @@ const styles = StyleSheet.create({
     },
     fabContainer: {
         position: 'absolute',
-        bottom: 96,
-        right: 24,
+        bottom: 180, // Above footer and tab bar
+        right: 20,
     },
     fab: {
         backgroundColor: '#3b82f6',
-        width: 56,
-        height: 56,
-        borderRadius: 28,
+        width: 52,
+        height: 52,
+        borderRadius: 26,
         alignItems: 'center',
         justifyContent: 'center',
         shadowColor: '#3b82f6',
@@ -631,38 +758,43 @@ const styles = StyleSheet.create({
         backgroundColor: 'white',
         borderTopWidth: 1,
         borderTopColor: '#e2e8f0',
-        paddingHorizontal: 24,
-        paddingVertical: 24,
-        paddingBottom: 32,
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        paddingBottom: 100, // Account for tab bar
     },
     legendTitle: {
         color: '#64748b',
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: '700',
         textTransform: 'uppercase',
         textAlign: 'center',
-        marginBottom: 16,
+        marginBottom: 12,
         letterSpacing: 1,
     },
     legendRow: {
         flexDirection: 'row',
-        justifyContent: 'space-around',
+        justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: 24,
+        flexWrap: 'wrap',
+        gap: 16,
+        marginBottom: 16,
     },
     legendItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
     },
     legendDot: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
+        width: 14,
+        height: 14,
+        borderRadius: 7,
     },
     legendText: {
-        fontSize: 14,
-        fontWeight: '500',
+        fontSize: 13,
+        fontWeight: '600',
         color: '#202124',
     },
     selectedInfo: {

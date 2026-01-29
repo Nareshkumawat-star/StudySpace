@@ -33,22 +33,156 @@ export const getSeatHeatmap = async (floor = 1) => {
 
     const { data, error } = await supabase
         .from('seats')
-        .select('id, label, status, floor, zone, has_power, is_quiet_zone')
+        .select('id, label, status, floor, zone, has_power, is_quiet_zone, has_lamp, has_ergo_chair, has_wifi, wifi_speed')
         .eq('floor', floor);
 
     return { data, error };
 };
 
+// ============================================
+// LIBRARY STRUCTURE API (Floors, Rooms, Seats)
+// ============================================
+
 /**
- * Get single seat details
+ * Get all floors for a library
+ */
+export const getLibraryFloors = async (libraryId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('floors')
+        .select('*')
+        .eq('library_id', libraryId)
+        .eq('is_active', true)
+        .order('floor_number');
+};
+
+/**
+ * Get all rooms for a library or specific floor
+ */
+export const getLibraryRooms = async (libraryId, floorId = null) => {
+    requireSupabase();
+
+    let query = supabase
+        .from('rooms')
+        .select('*, floor:floors(floor_number, floor_name)')
+        .eq('library_id', libraryId)
+        .eq('is_active', true);
+
+    if (floorId) {
+        query = query.eq('floor_id', floorId);
+    }
+
+    return await query.order('room_name');
+};
+
+/**
+ * Get seats for a specific room with matrix layout
+ */
+export const getRoomSeats = async (roomId) => {
+    requireSupabase();
+
+    const { data, error } = await supabase
+        .from('seats')
+        .select(`
+            id, label, status, floor, zone, 
+            has_power, is_quiet_zone, has_lamp, has_ergo_chair, has_wifi, wifi_speed,
+            room_id, row_number, column_number, seat_number, is_active
+        `)
+        .eq('room_id', roomId)
+        .eq('is_active', true)
+        .order('row_number')
+        .order('column_number');
+
+    return { data, error };
+};
+
+/**
+ * Get all seats for a library with room info
+ */
+export const getLibrarySeatsWithRooms = async (libraryId) => {
+    requireSupabase();
+
+    const { data, error } = await supabase
+        .from('seats')
+        .select(`
+            id, label, status, floor, zone, 
+            has_power, is_quiet_zone, has_lamp, has_ergo_chair, has_wifi, wifi_speed,
+            room_id, row_number, column_number, seat_number, is_active,
+            room:rooms(id, room_name, room_code, room_type, floor_id)
+        `)
+        .eq('library_id', libraryId)
+        .eq('is_active', true)
+        .order('room_id')
+        .order('row_number')
+        .order('column_number');
+
+    return { data, error };
+};
+
+/**
+ * Get seat heatmap for a specific floor in a library
+ */
+export const getLibrarySeatHeatmap = async (libraryId, floorId = null) => {
+    requireSupabase();
+
+    let query = supabase
+        .from('seats')
+        .select(`
+            id, label, status, floor, zone, 
+            has_power, is_quiet_zone, has_lamp, has_ergo_chair, has_wifi, wifi_speed, is_active,
+            room_id, row_number, column_number,
+            room:rooms(id, room_name, room_code, floor_id)
+        `)
+        .eq('library_id', libraryId)
+        .eq('is_active', true);
+
+    // If floorId provided, filter rooms by floor
+    if (floorId) {
+        const { data: rooms } = await supabase
+            .from('rooms')
+            .select('id')
+            .eq('floor_id', floorId);
+        
+        if (rooms && rooms.length > 0) {
+            const roomIds = rooms.map(r => r.id);
+            query = query.in('room_id', roomIds);
+        }
+    }
+
+    const { data, error } = await query.order('room_id').order('row_number').order('column_number');
+    return { data, error };
+};
+
+/**
+ * Get single seat details with room and floor info
  */
 export const getSeatById = async (seatId) => {
     requireSupabase();
 
     return await supabase
         .from('seats')
-        .select('*')
+        .select(`
+            *,
+            room:rooms(
+                id, room_name, room_code, room_type, 
+                floor:floors(id, floor_number, floor_name)
+            )
+        `)
         .eq('id', seatId)
+        .single();
+};
+
+/**
+ * Get library settings including rewards configuration
+ */
+export const getLibrarySettings = async (libraryId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('library_settings')
+        .select('*')
+        .eq('library_id', libraryId)
         .single();
 };
 
@@ -93,6 +227,26 @@ export const createBooking = async (userId, seatId, duration, location) => {
     }
 
     return { data, error };
+};
+
+/**
+ * Get count of active users (checked in) at a library
+ */
+export const getActiveUsersCount = async (libraryId = null) => {
+    requireSupabase();
+
+    let query = supabase
+        .from('bookings')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('status', 'active')
+        .eq('checked_in', true);
+
+    if (libraryId) {
+        query = query.eq('library_id', libraryId);
+    }
+
+    const { count, error } = await query;
+    return { count: count || 0, error };
 };
 
 /**

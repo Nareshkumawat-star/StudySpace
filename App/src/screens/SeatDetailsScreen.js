@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Image, ScrollView, Alert, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Image, ScrollView, Alert, StyleSheet, ActivityIndicator } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 
@@ -9,13 +9,27 @@ import { useTheme } from '../context/ThemeContext';
 import { useLibrary } from '../context/LibraryContext';
 import { useToast } from '../components/Toast';
 import { successNotification, lightImpact, selectionChanged } from '../utils/haptics';
+import { getSeatById, getLibrarySettings } from '../services/api';
 
-const amenities = [
-    { icon: 'power', label: 'Power', color: '#2563eb', bg: '#eff6ff', bgDark: 'rgba(37, 99, 235, 0.15)' },
-    { icon: 'lightbulb', label: 'Lamp', color: '#ea580c', bg: '#fff7ed', bgDark: 'rgba(234, 88, 12, 0.15)' },
-    { icon: 'chair-alt', label: 'Ergo Chair', color: '#9333ea', bg: '#f5f3ff', bgDark: 'rgba(147, 51, 234, 0.15)' },
-    { icon: 'wifi', label: 'Gigabit', color: '#0d9488', bg: '#ecfeff', bgDark: 'rgba(13, 148, 136, 0.15)' },
-];
+// Amenity configuration - maps database fields to display properties
+const AMENITY_CONFIG = {
+    has_power: { icon: 'power', label: 'Power', color: '#2563eb', bg: '#eff6ff', bgDark: 'rgba(37, 99, 235, 0.15)' },
+    has_lamp: { icon: 'lightbulb', label: 'Lamp', color: '#ea580c', bg: '#fff7ed', bgDark: 'rgba(234, 88, 12, 0.15)' },
+    has_ergo_chair: { icon: 'chair-alt', label: 'Ergo Chair', color: '#9333ea', bg: '#f5f3ff', bgDark: 'rgba(147, 51, 234, 0.15)' },
+    has_wifi: { icon: 'wifi', label: 'WiFi', color: '#0d9488', bg: '#ecfeff', bgDark: 'rgba(13, 148, 136, 0.15)' },
+    is_quiet_zone: { icon: 'volume-off', label: 'Quiet Zone', color: '#6366f1', bg: '#eef2ff', bgDark: 'rgba(99, 102, 241, 0.15)' },
+};
+
+// WiFi speed labels for display
+const WIFI_SPEED_LABELS = {
+    'basic': 'Basic WiFi',
+    'standard': 'Standard WiFi',
+    'high-speed': 'High-Speed WiFi',
+    'gigabit': 'Gigabit WiFi',
+};
+
+// Default placeholder image for seats
+const DEFAULT_SEAT_IMAGE = 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=800&q=80';
 
 const SeatDetailsScreen = ({ route }) => {
     const navigation = useNavigation();
@@ -27,6 +41,96 @@ const SeatDetailsScreen = ({ route }) => {
     const { showSuccess, showError } = useToast();
 
     const [duration, setDuration] = useState(120); // minutes
+    const [seatData, setSeatData] = useState(null);
+    const [librarySettings, setLibrarySettings] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    // Build dynamic amenities array from seat data
+    const getAmenities = () => {
+        if (!seatData) return [];
+        
+        const amenities = [];
+        
+        Object.keys(AMENITY_CONFIG).forEach(key => {
+            if (seatData[key]) {
+                const config = { ...AMENITY_CONFIG[key] };
+                // Special handling for WiFi to show speed
+                if (key === 'has_wifi' && seatData.wifi_speed) {
+                    config.label = WIFI_SPEED_LABELS[seatData.wifi_speed] || 'WiFi';
+                }
+                amenities.push(config);
+            }
+        });
+        
+        return amenities;
+    };
+
+    // Calculate rewards points based on duration and library settings
+    const getRewardsPoints = () => {
+        const pointsPerHour = librarySettings?.points_per_hour || 25;
+        const minSessionMinutes = librarySettings?.min_session_for_points || 60;
+        const bonusQuietZone = librarySettings?.bonus_points_quiet_zone || 10;
+        
+        const hours = duration / 60;
+        let points = Math.floor(hours * pointsPerHour);
+        
+        // Add bonus for quiet zone
+        if (seatData?.is_quiet_zone) {
+            points += bonusQuietZone;
+        }
+        
+        return duration >= minSessionMinutes ? points : 0;
+    };
+
+    // Get location string from seat data
+    const getLocationString = () => {
+        if (!seatData) return 'Loading...';
+        
+        const parts = [];
+        if (seatData.room?.floor?.floor_name) {
+            parts.push(seatData.room.floor.floor_name);
+        } else if (seatData.room?.floor?.floor_number) {
+            parts.push(`Floor ${seatData.room.floor.floor_number}`);
+        }
+        if (seatData.room?.room_name) {
+            parts.push(seatData.room.room_name);
+        }
+        if (seatData.zone && seatData.zone !== 'General') {
+            parts.push(seatData.zone);
+        }
+        
+        return parts.length > 0 ? parts.join(' • ') : 'Study Area';
+    };
+
+    // Fetch seat details and library settings
+    useEffect(() => {
+        const fetchData = async () => {
+            setLoading(true);
+            try {
+                // Fetch seat details
+                const { data: seat, error: seatError } = await getSeatById(seatId);
+                if (seatError) {
+                    console.error('Error fetching seat:', seatError);
+                } else {
+                    setSeatData(seat);
+                }
+
+                // Fetch library settings for rewards config
+                if (selectedLibrary?.id) {
+                    const { data: settings, error: settingsError } = await getLibrarySettings(selectedLibrary.id);
+                    if (!settingsError && settings) {
+                        setLibrarySettings(settings);
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching data:', err);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [seatId, selectedLibrary?.id]);
 
     // Sync library and refresh location when screen mounts
     useEffect(() => {
@@ -58,7 +162,8 @@ const SeatDetailsScreen = ({ route }) => {
             const location = selectedLibrary ? selectedLibrary.name : '2nd Floor • Silent Zone';
             await createBooking(seatId, duration, location);
             showSuccess(`Booking Confirmed for Seat ${seatId}`);
-            navigation.navigate('Bookings');
+            // Navigate to Bookings tab which is nested inside Root navigator
+            navigation.navigate('Root', { screen: 'Bookings' });
         } catch (err) {
             showError(err.message || 'Booking failed');
         }
@@ -87,32 +192,62 @@ const SeatDetailsScreen = ({ route }) => {
             </View>
 
             <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 150 }}>
-                <View style={styles.heroWrapper}>
-                    <View style={styles.heroCard}>
-                        <Image
-                            source={{ uri: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBRjId1zmpdQZzEQeeo37Sx_k4beEibzHTtvwYRFfyGvJzAQ3u26UGx-KFqg2EAo1nu4s_27fXLdI74J1H0JHrHGBVCwPc3YsboZuKJbRL-ZRXnzgQakRnWKN4shfqskweycZD92r1OSxlxT0oLrD3P_ThySmaD_HSbXeZgqDzPjUJJXBDybyWCbgdIbs1C-W1Bo3bEneH50cq0i0RRXASkRaXuKo-vqGJ9Nt1iw8CZi9rpzpC6l6AuAGVlNOzgaMAYU2idphXMbaqK' }}
-                            style={styles.heroImage}
-                        />
-                        <View style={styles.ratingBadge}>
-                            <MaterialIcons name="star" size={14} color="#eab308" />
-                            <Text style={styles.ratingText}>4.9</Text>
-                        </View>
+                {loading ? (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color={colors.primary} />
+                        <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading seat details...</Text>
                     </View>
-                </View>
+                ) : (
+                    <>
+                        <View style={styles.heroWrapper}>
+                            <View style={styles.heroCard}>
+                                <Image
+                                    source={{ uri: seatData?.image_url || DEFAULT_SEAT_IMAGE }}
+                                    style={styles.heroImage}
+                                />
+                                {seatData?.is_quiet_zone && (
+                                    <View style={styles.quietZoneBadge}>
+                                        <MaterialIcons name="volume-off" size={12} color="#6366f1" />
+                                        <Text style={styles.quietZoneText}>Quiet Zone</Text>
+                                    </View>
+                                )}
+                            </View>
+                        </View>
 
-                <View style={styles.metaSection}>
-                    <View style={styles.metaHeader}>
-                        <Text style={styles.seatTitle}>Seat {seatId}</Text>
-                        <View style={styles.statusChip}>
-                            <View style={styles.statusDot} />
-                            <Text style={styles.statusText}>Available</Text>
+                        <View style={styles.metaSection}>
+                            <View style={styles.metaHeader}>
+                                <Text style={styles.seatTitle}>Seat {seatId}</Text>
+                                <View style={[
+                                    styles.statusChip,
+                                    seatData?.status === 'occupied' && styles.statusChipOccupied,
+                                    seatData?.status === 'reserved' && styles.statusChipReserved,
+                                ]}>
+                                    <View style={[
+                                        styles.statusDot,
+                                        seatData?.status === 'occupied' && styles.statusDotOccupied,
+                                        seatData?.status === 'reserved' && styles.statusDotReserved,
+                                    ]} />
+                                    <Text style={[
+                                        styles.statusText,
+                                        seatData?.status === 'occupied' && styles.statusTextOccupied,
+                                        seatData?.status === 'reserved' && styles.statusTextReserved,
+                                    ]}>
+                                        {seatData?.status === 'available' ? 'Available' : 
+                                         seatData?.status === 'occupied' ? 'Occupied' : 
+                                         seatData?.status === 'reserved' ? 'Reserved' : 'Available'}
+                                    </Text>
+                                </View>
+                            </View>
+                            <View style={styles.metaRow}>
+                                <MaterialIcons name="location-on" size={16} color="#6b7280" />
+                                <Text style={styles.metaSubtext}>{getLocationString()}</Text>
+                            </View>
+                            {seatData?.description && (
+                                <Text style={[styles.seatDescription, { color: colors.textSecondary }]}>
+                                    {seatData.description}
+                                </Text>
+                            )}
                         </View>
-                    </View>
-                    <View style={styles.metaRow}>
-                        <MaterialIcons name="location-on" size={16} color="#6b7280" />
-                        <Text style={styles.metaSubtext}>2nd Floor • Silent Zone • East Wing</Text>
-                    </View>
-                </View>
 
                 {locationStatus !== 'in_range' && (
                     <View style={[styles.warningCard, { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#fef2f2' }]}>
@@ -143,23 +278,25 @@ const SeatDetailsScreen = ({ route }) => {
                     </View>
                 )}
 
-                <View style={styles.sectionPadding}>
-                    <Text style={styles.sectionLabel}>Amenities</Text>
-                    <View style={styles.amenitiesGrid}>
-                        {amenities.map((item, i) => (
-                            <View key={i} style={[styles.amenityCard, { backgroundColor: item.bg }]}>
-                                <View style={[styles.amenityIcon, { backgroundColor: 'white' }]}>
-                                    <MaterialIcons name={item.icon} size={20} color={item.color} />
+                {getAmenities().length > 0 && (
+                    <View style={styles.sectionPadding}>
+                        <Text style={styles.sectionLabel}>Amenities</Text>
+                        <View style={styles.amenitiesGrid}>
+                            {getAmenities().map((item, i) => (
+                                <View key={i} style={[styles.amenityCard, { backgroundColor: isDark ? item.bgDark : item.bg }]}>
+                                    <View style={[styles.amenityIcon, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'white' }]}>
+                                        <MaterialIcons name={item.icon} size={20} color={item.color} />
+                                    </View>
+                                    <Text style={[styles.amenityText, { color: colors.text }]}>{item.label}</Text>
                                 </View>
-                                <Text style={styles.amenityText}>{item.label}</Text>
-                            </View>
-                        ))}
+                            ))}
+                        </View>
                     </View>
-                </View>
+                )}
 
                 <View style={styles.scheduleSection}>
                     <View style={styles.scheduleHeader}>
-                        <Text style={styles.sectionLabel}>Today's Schedule</Text>
+                        <Text style={[styles.sectionLabel, { color: colors.text }]}>Today's Schedule</Text>
                         <Text style={styles.scheduleLink}>View Calendar</Text>
                     </View>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scheduleScroller}>
@@ -183,15 +320,24 @@ const SeatDetailsScreen = ({ route }) => {
                     </ScrollView>
                 </View>
 
-                <View style={styles.rewardsCard}>
-                    <View style={styles.rewardsIconWrap}>
-                        <MaterialIcons name="workspace-premium" size={28} color="#3b82f6" />
+                {getRewardsPoints() > 0 && (
+                    <View style={[styles.rewardsCard, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.1)' : '#eff6ff' }]}>
+                        <View style={styles.rewardsIconWrap}>
+                            <MaterialIcons name="workspace-premium" size={28} color="#3b82f6" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[styles.rewardsTitle, { color: colors.text }]}>
+                                Earn {getRewardsPoints()} Focus Points
+                            </Text>
+                            <Text style={[styles.rewardsSubtitle, { color: colors.textSecondary }]}>
+                                Complete this {duration >= 60 ? `${(duration / 60).toFixed(1)}-hour` : `${duration}-minute`} session to unlock rewards.
+                                {seatData?.is_quiet_zone && ' (Includes quiet zone bonus!)'}
+                            </Text>
+                        </View>
                     </View>
-                    <View>
-                        <Text style={styles.rewardsTitle}>Earn 50 Focus Points</Text>
-                        <Text style={styles.rewardsSubtitle}>Complete a 2-hour session to unlock rewards.</Text>
-                    </View>
-                </View>
+                )}
+                    </>
+                )}
             </ScrollView>
 
             <View style={styles.bottomBar}>
@@ -337,6 +483,56 @@ const styles = StyleSheet.create({
         color: '#166534',
         fontSize: 12,
         fontWeight: '700',
+    },
+    statusChipOccupied: {
+        backgroundColor: '#fee2e2',
+    },
+    statusChipReserved: {
+        backgroundColor: '#fef3c7',
+    },
+    statusDotOccupied: {
+        backgroundColor: '#ef4444',
+    },
+    statusDotReserved: {
+        backgroundColor: '#f59e0b',
+    },
+    statusTextOccupied: {
+        color: '#991b1b',
+    },
+    statusTextReserved: {
+        color: '#92400e',
+    },
+    quietZoneBadge: {
+        position: 'absolute',
+        top: 10,
+        left: 10,
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    quietZoneText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#6366f1',
+    },
+    seatDescription: {
+        fontSize: 14,
+        lineHeight: 20,
+        marginTop: 8,
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 60,
+    },
+    loadingText: {
+        marginTop: 12,
+        fontSize: 14,
     },
     metaRow: {
         flexDirection: 'row',

@@ -10,11 +10,13 @@ import {
     Alert,
     KeyboardAvoidingView,
     Platform,
+    Modal,
+    Clipboard,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useAdmin } from '../../context/AdminContext';
-import { createLibrary, updateLibrary } from '../../services/adminApi';
+import { createLibrary, updateLibrary, createLibraryClient } from '../../services/adminApi';
 import { lightImpact, successNotification, errorNotification } from '../../utils/haptics';
 
 const AddEditLibraryScreen = ({ navigation, route }) => {
@@ -32,12 +34,13 @@ const AddEditLibraryScreen = ({ navigation, route }) => {
         radiusMeters: existingLibrary?.radius_meters?.toString() || '100',
         openingTime: existingLibrary?.opening_time || '08:00',
         closingTime: existingLibrary?.closing_time || '22:00',
-        totalSeats: existingLibrary?.total_seats?.toString() || '0',
         description: existingLibrary?.description || '',
     });
 
     const [isLoading, setIsLoading] = useState(false);
     const [errors, setErrors] = useState({});
+    const [clientCredentials, setClientCredentials] = useState(null);
+    const [showCredentialsModal, setShowCredentialsModal] = useState(false);
 
     const latitudeRef = useRef();
     const longitudeRef = useRef();
@@ -102,7 +105,7 @@ const AddEditLibraryScreen = ({ navigation, route }) => {
                 radiusMeters: parseInt(formData.radiusMeters),
                 openingTime: formData.openingTime,
                 closingTime: formData.closingTime,
-                totalSeats: parseInt(formData.totalSeats) || 0,
+                totalSeats: 0, // Seats are managed by client dashboard
                 description: formData.description.trim(),
                 createdBy: adminUser?.id,
             };
@@ -117,7 +120,6 @@ const AddEditLibraryScreen = ({ navigation, route }) => {
                     radius_meters: libraryData.radiusMeters,
                     opening_time: libraryData.openingTime,
                     closing_time: libraryData.closingTime,
-                    total_seats: libraryData.totalSeats,
                     description: libraryData.description,
                 });
             } else {
@@ -128,8 +130,29 @@ const AddEditLibraryScreen = ({ navigation, route }) => {
                 throw new Error(result.error.message);
             }
 
+            // If creating a new library, also create client credentials
+            if (!isEditing && result.data) {
+                const credentialsResult = await createLibraryClient(
+                    result.data.id,
+                    result.data.name,
+                    adminUser?.id
+                );
+
+                if (credentialsResult.error) {
+                    console.error('Failed to create client credentials:', credentialsResult.error);
+                    Alert.alert('Warning', 'Library created but failed to generate client credentials. You can create them later.');
+                } else if (credentialsResult.credentials) {
+                    setClientCredentials(credentialsResult.credentials);
+                    setShowCredentialsModal(true);
+                }
+            }
+
             successNotification();
-            navigation.goBack();
+            
+            // If editing, go back immediately. If creating, wait for credentials modal to close
+            if (isEditing) {
+                navigation.goBack();
+            }
         } catch (error) {
             console.error('Error saving library:', error);
             errorNotification();
@@ -137,6 +160,17 @@ const AddEditLibraryScreen = ({ navigation, route }) => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const copyToClipboard = (text, label) => {
+        Clipboard.setString(text);
+        Alert.alert('Copied', `${label} copied to clipboard`);
+        lightImpact();
+    };
+
+    const handleCloseCredentialsModal = () => {
+        setShowCredentialsModal(false);
+        navigation.goBack();
     };
 
     const handleGetCurrentLocation = async () => {
@@ -304,18 +338,15 @@ const AddEditLibraryScreen = ({ navigation, route }) => {
                     </View>
                 </View>
 
-                {/* Capacity */}
-                <View style={styles.section}>
-                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Capacity</Text>
-                    
-                    {renderInput('Total Seats', 'totalSeats', '0', {
-                        icon: 'event-seat',
-                        keyboardType: 'numeric',
-                    })}
-                    <Text style={[styles.helpText, { color: colors.textMuted }]}>
-                        You can add and manage individual seats after creating the library.
-                    </Text>
-                </View>
+                {/* Info about seat management */}
+                {!isEditing && (
+                    <View style={[styles.infoBanner, { backgroundColor: colors.primaryLight }]}>
+                        <MaterialIcons name="info" size={20} color={colors.primary} />
+                        <Text style={[styles.infoBannerText, { color: colors.primary }]}>
+                            Floors, rooms, and seats can be configured by the library owner through their dashboard after the library is created.
+                        </Text>
+                    </View>
+                )}
             </ScrollView>
 
             {/* Save Button */}
@@ -337,6 +368,95 @@ const AddEditLibraryScreen = ({ navigation, route }) => {
                     )}
                 </TouchableOpacity>
             </View>
+
+            {/* Client Credentials Modal */}
+            <Modal
+                visible={showCredentialsModal}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={handleCloseCredentialsModal}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+                        <View style={styles.modalHeader}>
+                            <MaterialIcons name="vpn-key" size={32} color={colors.primary} />
+                            <Text style={[styles.modalTitle, { color: colors.text }]}>
+                                Client Credentials Created
+                            </Text>
+                            <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
+                                Save these credentials securely. The password will not be shown again.
+                            </Text>
+                        </View>
+
+                        {clientCredentials && (
+                            <View style={styles.credentialsContainer}>
+                                <View style={[styles.credentialItem, { backgroundColor: colors.background }]}>
+                                    <Text style={[styles.credentialLabel, { color: colors.textMuted }]}>
+                                        Library Name
+                                    </Text>
+                                    <Text style={[styles.credentialValue, { color: colors.text }]}>
+                                        {clientCredentials.libraryName}
+                                    </Text>
+                                </View>
+
+                                <View style={[styles.credentialItem, { backgroundColor: colors.background }]}>
+                                    <View style={styles.credentialHeader}>
+                                        <Text style={[styles.credentialLabel, { color: colors.textMuted }]}>
+                                            Username
+                                        </Text>
+                                        <TouchableOpacity
+                                            onPress={() => copyToClipboard(clientCredentials.username, 'Username')}
+                                            style={[styles.copyButton, { backgroundColor: colors.primary + '20' }]}
+                                        >
+                                            <MaterialIcons name="content-copy" size={16} color={colors.primary} />
+                                            <Text style={[styles.copyButtonText, { color: colors.primary }]}>
+                                                Copy
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <Text style={[styles.credentialValue, { color: colors.text }]}>
+                                        {clientCredentials.username}
+                                    </Text>
+                                </View>
+
+                                <View style={[styles.credentialItem, { backgroundColor: colors.background }]}>
+                                    <View style={styles.credentialHeader}>
+                                        <Text style={[styles.credentialLabel, { color: colors.textMuted }]}>
+                                            Password
+                                        </Text>
+                                        <TouchableOpacity
+                                            onPress={() => copyToClipboard(clientCredentials.password, 'Password')}
+                                            style={[styles.copyButton, { backgroundColor: colors.primary + '20' }]}
+                                        >
+                                            <MaterialIcons name="content-copy" size={16} color={colors.primary} />
+                                            <Text style={[styles.copyButtonText, { color: colors.primary }]}>
+                                                Copy
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    <Text style={[styles.credentialValuePassword, { color: colors.text }]}>
+                                        {clientCredentials.password}
+                                    </Text>
+                                </View>
+
+                                <View style={[styles.warningBox, { backgroundColor: '#fef3c7' }]}>
+                                    <MaterialIcons name="warning" size={20} color="#f59e0b" />
+                                    <Text style={styles.warningText}>
+                                        Please save these credentials now. The password cannot be retrieved later, only reset.
+                                    </Text>
+                                </View>
+                            </View>
+                        )}
+
+                        <TouchableOpacity
+                            style={[styles.modalButton, { backgroundColor: colors.primary }]}
+                            onPress={handleCloseCredentialsModal}
+                        >
+                            <Text style={styles.modalButtonText}>I've Saved the Credentials</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </KeyboardAvoidingView>
     );
 };
@@ -456,6 +576,115 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#fff',
         fontWeight: '600',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        padding: 20,
+    },
+    modalContent: {
+        borderRadius: 20,
+        padding: 24,
+        maxHeight: '80%',
+    },
+    modalHeader: {
+        alignItems: 'center',
+        marginBottom: 24,
+    },
+    modalTitle: {
+        fontFamily: 'Montserrat_700Bold',
+        fontSize: 20,
+        marginTop: 12,
+        marginBottom: 8,
+        textAlign: 'center',
+    },
+    modalSubtitle: {
+        fontFamily: 'Inter_400Regular',
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+    credentialsContainer: {
+        marginBottom: 24,
+    },
+    credentialItem: {
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+    },
+    credentialHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    credentialLabel: {
+        fontFamily: 'Inter_500Medium',
+        fontSize: 12,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    credentialValue: {
+        fontFamily: 'Inter_600SemiBold',
+        fontSize: 16,
+    },
+    credentialValuePassword: {
+        fontFamily: 'Courier',
+        fontSize: 16,
+        letterSpacing: 1,
+    },
+    copyButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 8,
+        gap: 4,
+    },
+    copyButtonText: {
+        fontFamily: 'Inter_500Medium',
+        fontSize: 12,
+    },
+    warningBox: {
+        flexDirection: 'row',
+        padding: 12,
+        borderRadius: 8,
+        gap: 8,
+        marginTop: 8,
+    },
+    warningText: {
+        flex: 1,
+        fontFamily: 'Inter_400Regular',
+        fontSize: 13,
+        color: '#92400e',
+        lineHeight: 18,
+    },
+    modalButton: {
+        height: 52,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalButtonText: {
+        fontFamily: 'Inter_600SemiBold',
+        fontSize: 16,
+        color: '#fff',
+    },
+    infoBanner: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        padding: 16,
+        borderRadius: 12,
+        marginHorizontal: 16,
+        marginBottom: 16,
+        gap: 12,
+    },
+    infoBannerText: {
+        flex: 1,
+        fontFamily: 'Inter_400Regular',
+        fontSize: 14,
+        lineHeight: 20,
     },
 });
 

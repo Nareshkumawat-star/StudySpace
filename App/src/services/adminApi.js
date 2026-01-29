@@ -262,3 +262,401 @@ export const getDashboardStats = async () => {
         activeBookings: bookings.filter(b => b.status === 'active').length,
     };
 };
+
+// ============================================
+// LIBRARY CLIENT CREDENTIALS API
+// ============================================
+
+/**
+ * Generate unique username for a library client
+ */
+const generateUsername = (libraryName) => {
+    const prefix = libraryName.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 8);
+    const randomSuffix = Math.random().toString(36).substring(2, 6);
+    return `${prefix}_${randomSuffix}`;
+};
+
+/**
+ * Generate random password
+ */
+const generatePassword = (length = 12) => {
+    const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%';
+    let password = '';
+    for (let i = 0; i < length; i++) {
+        password += charset.charAt(Math.floor(Math.random() * charset.length));
+    }
+    return password;
+};
+
+/**
+ * Simple password hashing (in production, use bcrypt)
+ * This is a placeholder - implement proper hashing on backend
+ */
+const hashPassword = (password) => {
+    // In production, this should be done server-side with bcrypt
+    // For now, we'll use a simple approach (NOT SECURE for production)
+    return btoa(password); // Base64 encoding - REPLACE WITH BCRYPT
+};
+
+/**
+ * Create client credentials for a library
+ */
+export const createLibraryClient = async (libraryId, libraryName, adminId, clientData = {}) => {
+    requireSupabase();
+
+    const username = clientData.username || generateUsername(libraryName);
+    const password = clientData.password || generatePassword();
+    const passwordHash = hashPassword(password);
+
+    const { data, error } = await supabase
+        .from('library_clients')
+        .insert({
+            library_id: libraryId,
+            username: username,
+            password_hash: passwordHash,
+            name: clientData.name || `${libraryName} Owner`,
+            email: clientData.email,
+            phone: clientData.phone,
+            is_active: true,
+            created_by: adminId,
+        })
+        .select()
+        .single();
+
+    if (error) {
+        return { data: null, error, credentials: null };
+    }
+
+    // Return credentials for admin to share with client
+    return {
+        data,
+        error: null,
+        credentials: {
+            username,
+            password, // Only returned once at creation
+            libraryId,
+            libraryName,
+        },
+    };
+};
+
+/**
+ * Get all library clients
+ */
+export const getLibraryClients = async () => {
+    requireSupabase();
+
+    return await supabase
+        .from('library_clients')
+        .select(`
+            *,
+            library:libraries(id, name),
+            created_by_admin:admins(name, email)
+        `)
+        .order('created_at', { ascending: false });
+};
+
+/**
+ * Get client by library ID
+ */
+export const getClientByLibraryId = async (libraryId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('library_clients')
+        .select('*')
+        .eq('library_id', libraryId)
+        .single();
+};
+
+/**
+ * Update client credentials
+ */
+export const updateLibraryClient = async (clientId, updates) => {
+    requireSupabase();
+
+    const updateData = { ...updates };
+    
+    // If password is being updated, hash it
+    if (updates.password) {
+        updateData.password_hash = hashPassword(updates.password);
+        delete updateData.password;
+    }
+
+    return await supabase
+        .from('library_clients')
+        .update({
+            ...updateData,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', clientId)
+        .select()
+        .single();
+};
+
+/**
+ * Reset client password
+ */
+export const resetClientPassword = async (clientId) => {
+    requireSupabase();
+
+    const newPassword = generatePassword();
+    const passwordHash = hashPassword(newPassword);
+
+    const { data, error } = await supabase
+        .from('library_clients')
+        .update({
+            password_hash: passwordHash,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', clientId)
+        .select()
+        .single();
+
+    return {
+        data,
+        error,
+        newPassword: error ? null : newPassword,
+    };
+};
+
+/**
+ * Deactivate/activate client
+ */
+export const toggleClientStatus = async (clientId, isActive) => {
+    requireSupabase();
+
+    return await supabase
+        .from('library_clients')
+        .update({
+            is_active: isActive,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', clientId)
+        .select()
+        .single();
+};
+
+/**
+ * Delete client
+ */
+export const deleteLibraryClient = async (clientId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('library_clients')
+        .delete()
+        .eq('id', clientId);
+};
+
+// ============================================
+// FLOOR MANAGEMENT
+// ============================================
+
+/**
+ * Get all floors for a library
+ */
+export const getFloorsByLibrary = async (libraryId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('floors')
+        .select('*')
+        .eq('library_id', libraryId)
+        .eq('is_active', true)
+        .order('floor_number', { ascending: true });
+};
+
+/**
+ * Create a new floor
+ */
+export const createFloor = async (floorData) => {
+    requireSupabase();
+
+    return await supabase
+        .from('floors')
+        .insert(floorData)
+        .select()
+        .single();
+};
+
+/**
+ * Update a floor
+ */
+export const updateFloor = async (floorId, updates) => {
+    requireSupabase();
+
+    return await supabase
+        .from('floors')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', floorId)
+        .select()
+        .single();
+};
+
+/**
+ * Delete a floor (and cascade to rooms and seats)
+ */
+export const deleteFloor = async (floorId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('floors')
+        .delete()
+        .eq('id', floorId);
+};
+
+// ============================================
+// ROOM MANAGEMENT
+// ============================================
+
+/**
+ * Get all rooms for a floor
+ */
+export const getRoomsByFloor = async (floorId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('rooms')
+        .select('*')
+        .eq('floor_id', floorId)
+        .eq('is_active', true)
+        .order('room_name', { ascending: true });
+};
+
+/**
+ * Get all rooms for a library
+ */
+export const getRoomsByLibrary = async (libraryId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('rooms')
+        .select(`
+            *,
+            floor:floors(id, floor_number, floor_name)
+        `)
+        .eq('library_id', libraryId)
+        .eq('is_active', true)
+        .order('room_name', { ascending: true });
+};
+
+/**
+ * Create a new room
+ */
+export const createRoom = async (roomData) => {
+    requireSupabase();
+
+    return await supabase
+        .from('rooms')
+        .insert(roomData)
+        .select()
+        .single();
+};
+
+/**
+ * Update a room
+ */
+export const updateRoom = async (roomId, updates) => {
+    requireSupabase();
+
+    return await supabase
+        .from('rooms')
+        .update({
+            ...updates,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', roomId)
+        .select()
+        .single();
+};
+
+/**
+ * Delete a room (and cascade to seats)
+ */
+export const deleteRoom = async (roomId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('rooms')
+        .delete()
+        .eq('id', roomId);
+};
+
+// ============================================
+// SEAT MANAGEMENT
+// ============================================
+
+/**
+ * Get all seats for a room
+ */
+export const getSeatsByRoom = async (roomId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('seats')
+        .select('*')
+        .eq('room_id', roomId)
+        .eq('is_active', true)
+        .order('row_number', { ascending: true })
+        .order('column_number', { ascending: true });
+};
+
+/**
+ * Create multiple seats in a grid pattern
+ */
+export const createSeats = async (roomId, libraryId, rows, columns) => {
+    requireSupabase();
+
+    const seats = [];
+    let seatNumber = 1;
+
+    for (let row = 1; row <= rows; row++) {
+        for (let col = 1; col <= columns; col++) {
+            seats.push({
+                room_id: roomId,
+                library_id: libraryId,
+                seat_number: seatNumber,
+                row_number: row,
+                column_number: col,
+                status: 'available',
+                is_active: true,
+            });
+            seatNumber++;
+        }
+    }
+
+    return await supabase
+        .from('seats')
+        .insert(seats)
+        .select();
+};
+
+/**
+ * Update seat status
+ */
+export const updateSeatStatus = async (seatId, status) => {
+    requireSupabase();
+
+    return await supabase
+        .from('seats')
+        .update({ status })
+        .eq('id', seatId)
+        .select()
+        .single();
+};
+
+/**
+ * Delete a seat
+ */
+export const deleteSeat = async (seatId) => {
+    requireSupabase();
+
+    return await supabase
+        .from('seats')
+        .update({ is_active: false })
+        .eq('id', seatId);
+};

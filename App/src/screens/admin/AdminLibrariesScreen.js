@@ -8,13 +8,16 @@ import {
     RefreshControl,
     ActivityIndicator,
     Alert,
+    Modal,
+    Clipboard,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
-import { getLibraries, deleteLibrary } from '../../services/adminApi';
-import { lightImpact, errorNotification } from '../../utils/haptics';
+import { getLibraries, deleteLibrary, getClientByLibraryId, resetClientPassword, createLibraryClient } from '../../services/adminApi';
+import { useAdmin } from '../../context/AdminContext';
+import { lightImpact, errorNotification, successNotification } from '../../utils/haptics';
 
-const LibraryCard = ({ library, onEdit, onDelete, onViewSeats, colors }) => (
+const LibraryCard = ({ library, onEdit, onDelete, onViewSeats, onViewCredentials, colors }) => (
     <View style={[styles.libraryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={styles.libraryHeader}>
             <View style={[styles.libraryIcon, { backgroundColor: colors.primaryLight }]}>
@@ -69,6 +72,13 @@ const LibraryCard = ({ library, onEdit, onDelete, onViewSeats, colors }) => (
                 <Text style={[styles.actionButtonText, { color: colors.primary }]}>Edit</Text>
             </TouchableOpacity>
             <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: '#fef3c7' }]}
+                onPress={() => onViewCredentials(library)}
+            >
+                <MaterialIcons name="vpn-key" size={18} color="#d97706" />
+                <Text style={[styles.actionButtonText, { color: '#d97706' }]}>Login</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: '#dbeafe' }]}
                 onPress={() => onViewSeats(library)}
             >
@@ -80,7 +90,6 @@ const LibraryCard = ({ library, onEdit, onDelete, onViewSeats, colors }) => (
                 onPress={() => onDelete(library)}
             >
                 <MaterialIcons name="delete" size={18} color="#dc2626" />
-                <Text style={[styles.actionButtonText, { color: '#dc2626' }]}>Delete</Text>
             </TouchableOpacity>
         </View>
     </View>
@@ -92,6 +101,15 @@ const AdminLibrariesScreen = ({ navigation }) => {
     const [libraries, setLibraries] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+    
+    // Credentials modal state
+    const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+    const [selectedLibrary, setSelectedLibrary] = useState(null);
+    const [clientCredentials, setClientCredentials] = useState(null);
+    const [credentialsLoading, setCredentialsLoading] = useState(false);
+    const [newPassword, setNewPassword] = useState(null);
+
+    const { adminUser } = useAdmin();
 
     const fetchLibraries = useCallback(async () => {
         try {
@@ -163,6 +181,94 @@ const AdminLibrariesScreen = ({ navigation }) => {
         );
     };
 
+    const handleViewCredentials = async (library) => {
+        lightImpact();
+        setSelectedLibrary(library);
+        setCredentialsLoading(true);
+        setNewPassword(null);
+        setShowCredentialsModal(true);
+
+        try {
+            const { data, error } = await getClientByLibraryId(library.id);
+            if (error) {
+                // No client exists yet, offer to create one
+                setClientCredentials(null);
+            } else {
+                setClientCredentials(data);
+            }
+        } catch (error) {
+            console.error('Error fetching credentials:', error);
+            setClientCredentials(null);
+        } finally {
+            setCredentialsLoading(false);
+        }
+    };
+
+    const handleResetPassword = async () => {
+        if (!clientCredentials) return;
+        
+        lightImpact();
+        setCredentialsLoading(true);
+        
+        try {
+            const result = await resetClientPassword(clientCredentials.id);
+            if (result.error) {
+                throw result.error;
+            }
+            // The newPassword is returned separately from data
+            if (result.newPassword) {
+                setNewPassword(result.newPassword);
+                successNotification();
+                Alert.alert('Success', 'Password has been reset. Please share the new password with the library owner.');
+            } else {
+                throw new Error('Failed to generate new password');
+            }
+        } catch (error) {
+            console.error('Error resetting password:', error);
+            errorNotification();
+            Alert.alert('Error', 'Failed to reset password');
+        } finally {
+            setCredentialsLoading(false);
+        }
+    };
+
+    const handleCreateCredentials = async () => {
+        if (!selectedLibrary || !adminUser) {
+            Alert.alert('Error', 'Admin session not found. Please log in again.');
+            return;
+        }
+        
+        lightImpact();
+        setCredentialsLoading(true);
+        
+        try {
+            const { data, error, credentials } = await createLibraryClient(
+                selectedLibrary.id, 
+                selectedLibrary.name, 
+                adminUser.id
+            );
+            if (error) {
+                throw error;
+            }
+            setClientCredentials(data);
+            setNewPassword(credentials?.password);
+            successNotification();
+            Alert.alert('Success', 'Client credentials created successfully.');
+        } catch (error) {
+            console.error('Error creating credentials:', error);
+            errorNotification();
+            Alert.alert('Error', error.message || 'Failed to create credentials');
+        } finally {
+            setCredentialsLoading(false);
+        }
+    };
+
+    const copyToClipboard = (text, label) => {
+        Clipboard.setString(text);
+        successNotification();
+        Alert.alert('Copied', `${label} copied to clipboard`);
+    };
+
     if (isLoading) {
         return (
             <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
@@ -222,11 +328,142 @@ const AdminLibrariesScreen = ({ navigation }) => {
                             onEdit={handleEditLibrary}
                             onDelete={handleDeleteLibrary}
                             onViewSeats={handleViewSeats}
+                            onViewCredentials={handleViewCredentials}
                             colors={colors}
                         />
                     ))
                 )}
             </ScrollView>
+
+            {/* Credentials Modal */}
+            <Modal
+                visible={showCredentialsModal}
+                transparent={true}
+                animationType="slide"
+                onRequestClose={() => setShowCredentialsModal(false)}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+                        <View style={styles.modalHeader}>
+                            <Text style={[styles.modalTitle, { color: colors.text }]}>
+                                Client Dashboard Login
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => setShowCredentialsModal(false)}
+                                style={styles.closeButton}
+                            >
+                                <MaterialIcons name="close" size={24} color={colors.text} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <Text style={[styles.libraryNameModal, { color: colors.primary }]}>
+                            {selectedLibrary?.name}
+                        </Text>
+
+                        {credentialsLoading ? (
+                            <View style={styles.loadingCredentials}>
+                                <ActivityIndicator size="large" color={colors.primary} />
+                                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+                                    Loading credentials...
+                                </Text>
+                            </View>
+                        ) : clientCredentials ? (
+                            <View style={styles.credentialsContainer}>
+                                <View style={styles.credentialRow}>
+                                    <Text style={[styles.credentialLabel, { color: colors.textSecondary }]}>
+                                        Username
+                                    </Text>
+                                    <View style={styles.credentialValueRow}>
+                                        <Text style={[styles.credentialValue, { color: colors.text }]}>
+                                            {clientCredentials.username}
+                                        </Text>
+                                        <TouchableOpacity
+                                            onPress={() => copyToClipboard(clientCredentials.username, 'Username')}
+                                            style={styles.copyBtn}
+                                        >
+                                            <MaterialIcons name="content-copy" size={20} color={colors.primary} />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+
+                                {newPassword ? (
+                                    <View style={styles.credentialRow}>
+                                        <Text style={[styles.credentialLabel, { color: colors.textSecondary }]}>
+                                            New Password
+                                        </Text>
+                                        <View style={styles.credentialValueRow}>
+                                            <Text style={[styles.credentialValue, { color: colors.text }]}>
+                                                {newPassword}
+                                            </Text>
+                                            <TouchableOpacity
+                                                onPress={() => copyToClipboard(newPassword, 'Password')}
+                                                style={styles.copyBtn}
+                                            >
+                                                <MaterialIcons name="content-copy" size={20} color={colors.primary} />
+                                            </TouchableOpacity>
+                                        </View>
+                                    </View>
+                                ) : (
+                                    <View style={styles.credentialRow}>
+                                        <Text style={[styles.credentialLabel, { color: colors.textSecondary }]}>
+                                            Password
+                                        </Text>
+                                        <Text style={[styles.passwordNote, { color: colors.textMuted }]}>
+                                            For security, the password is hidden. Use reset to generate a new one.
+                                        </Text>
+                                    </View>
+                                )}
+
+                                <View style={styles.statusRow}>
+                                    <Text style={[styles.credentialLabel, { color: colors.textSecondary }]}>
+                                        Status
+                                    </Text>
+                                    <View style={[
+                                        styles.statusBadgeModal,
+                                        { backgroundColor: clientCredentials.is_active ? '#dcfce7' : '#fee2e2' }
+                                    ]}>
+                                        <Text style={[
+                                            styles.statusTextModal,
+                                            { color: clientCredentials.is_active ? '#16a34a' : '#dc2626' }
+                                        ]}>
+                                            {clientCredentials.is_active ? 'Active' : 'Inactive'}
+                                        </Text>
+                                    </View>
+                                </View>
+
+                                <TouchableOpacity
+                                    style={[styles.resetButton, { backgroundColor: '#fef3c7' }]}
+                                    onPress={handleResetPassword}
+                                    disabled={credentialsLoading}
+                                >
+                                    <MaterialIcons name="refresh" size={20} color="#d97706" />
+                                    <Text style={[styles.resetButtonText, { color: '#d97706' }]}>
+                                        Reset Password
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <View style={styles.noCredentials}>
+                                <MaterialIcons name="warning" size={48} color="#d97706" />
+                                <Text style={[styles.noCredentialsText, { color: colors.text }]}>
+                                    No client credentials found
+                                </Text>
+                                <Text style={[styles.noCredentialsSubtext, { color: colors.textSecondary }]}>
+                                    Create credentials to allow the library owner to access their dashboard.
+                                </Text>
+                                <TouchableOpacity
+                                    style={[styles.createButton, { backgroundColor: colors.primary }]}
+                                    onPress={handleCreateCredentials}
+                                    disabled={credentialsLoading}
+                                >
+                                    <MaterialIcons name="add" size={20} color="#fff" />
+                                    <Text style={styles.createButtonText}>Create Credentials</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+                </View>
+            </Modal>
         </View>
     );
 };
@@ -375,6 +612,136 @@ const styles = StyleSheet.create({
     emptyButtonText: {
         fontFamily: 'Inter_500Medium',
         fontSize: 14,
+        color: '#fff',
+    },
+    // Modal styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        padding: 24,
+        maxHeight: '80%',
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    modalTitle: {
+        fontFamily: 'Montserrat_700Bold',
+        fontSize: 20,
+    },
+    closeButton: {
+        padding: 4,
+    },
+    libraryNameModal: {
+        fontFamily: 'Inter_500Medium',
+        fontSize: 16,
+        marginBottom: 24,
+    },
+    loadingCredentials: {
+        alignItems: 'center',
+        paddingVertical: 40,
+    },
+    loadingText: {
+        fontFamily: 'Inter_400Regular',
+        fontSize: 14,
+        marginTop: 12,
+    },
+    credentialsContainer: {
+        gap: 20,
+    },
+    credentialRow: {
+        gap: 8,
+    },
+    credentialLabel: {
+        fontFamily: 'Inter_500Medium',
+        fontSize: 13,
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
+    },
+    credentialValueRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#f3f4f6',
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 12,
+    },
+    credentialValue: {
+        fontFamily: 'Inter_500Medium',
+        fontSize: 16,
+        flex: 1,
+        color: '#1f2937', // Dark text color for visibility
+    },
+    copyBtn: {
+        padding: 4,
+    },
+    passwordNote: {
+        fontFamily: 'Inter_400Regular',
+        fontSize: 13,
+        fontStyle: 'italic',
+    },
+    statusRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    statusBadgeModal: {
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 12,
+    },
+    statusTextModal: {
+        fontFamily: 'Inter_500Medium',
+        fontSize: 13,
+    },
+    resetButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        borderRadius: 12,
+        gap: 8,
+        marginTop: 12,
+    },
+    resetButtonText: {
+        fontFamily: 'Inter_600SemiBold',
+        fontSize: 15,
+    },
+    noCredentials: {
+        alignItems: 'center',
+        paddingVertical: 32,
+    },
+    noCredentialsText: {
+        fontFamily: 'Montserrat_700Bold',
+        fontSize: 18,
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    noCredentialsSubtext: {
+        fontFamily: 'Inter_400Regular',
+        fontSize: 14,
+        textAlign: 'center',
+        marginBottom: 24,
+    },
+    createButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 24,
+        paddingVertical: 14,
+        borderRadius: 12,
+        gap: 8,
+    },
+    createButtonText: {
+        fontFamily: 'Inter_600SemiBold',
+        fontSize: 15,
         color: '#fff',
     },
 });

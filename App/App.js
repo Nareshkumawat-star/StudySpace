@@ -27,6 +27,7 @@ import {
   AdminLibrariesScreen,
   AddEditLibraryScreen,
   AdminSettingsScreen,
+  AdminManageSeatsScreen,
 } from './src/screens/admin';
 
 import { LocationProvider } from './src/context/LocationContext';
@@ -164,6 +165,7 @@ function AdminNavigator() {
         <AdminStack.Screen name="AdminLibraries" component={AdminLibrariesScreen} />
         <AdminStack.Screen name="AdminAddLibrary" component={AddEditLibraryScreen} />
         <AdminStack.Screen name="AdminEditLibrary" component={AddEditLibraryScreen} />
+        <AdminStack.Screen name="AdminManageSeats" component={AdminManageSeatsScreen} />
         <AdminStack.Screen name="AdminSettings" component={AdminSettingsScreen} />
       </AdminStack.Navigator>
     </>
