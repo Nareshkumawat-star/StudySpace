@@ -51,9 +51,7 @@ class PushNotifications {
 
             // Get push token
             try {
-                const token = await Notifications.getExpoPushTokenAsync({
-                    projectId: 'your-project-id', // Replace with your Expo project ID
-                });
+                const token = await Notifications.getExpoPushTokenAsync();
 
                 await AsyncStorage.setItem(PUSH_TOKEN_KEY, token.data);
                 console.log('Push token:', token.data);
