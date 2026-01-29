@@ -1,17 +1,3 @@
-import React from "react";
-import { View, ActivityIndicator, StyleSheet, Text } from "react-native";
-import { NavigationContainer } from "@react-navigation/native";
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { MaterialIcons } from "@expo/vector-icons";
-import { StatusBar } from "expo-status-bar";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
-import {
-  ClerkProvider,
-  ClerkLoaded,
-  SignedIn,
-  SignedOut,
-} from "@clerk/clerk-expo";
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -22,6 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ClerkProvider, ClerkLoaded, SignedIn, SignedOut } from '@clerk/clerk-expo';
+
 
 import HomeScreen from "./src/screens/HomeScreen";
 import SeatMapScreen from "./src/screens/SeatMapScreen";
@@ -89,10 +76,7 @@ function MainTabs() {
         tabBarStyle: {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.tabBarBorder,
-          height: 85,
-          paddingBottom: 25,
-          paddingTop: 10,
-          position: "absolute",
+
           height: tabBarHeight,
           paddingBottom: insets.bottom,
           paddingTop: 8,
@@ -115,9 +99,6 @@ function MainTabs() {
           textTransform: "uppercase",
           marginTop: 4,
         },
-          textTransform: 'uppercase',
-          marginTop: 2
-        }
       }}
     >
       <Tab.Screen
@@ -277,34 +258,7 @@ export default function App() {
   }
 
   return (
-    <ClerkProvider
-      publishableKey={CLERK_PUBLISHABLE_KEY}
-      tokenCache={tokenCache}
-    >
-      <ClerkLoaded>
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <ErrorBoundary>
-            <ThemeProvider>
-              <AdminProvider>
-                <AuthProvider>
-                  <LibraryProvider>
-                    <LocationProvider>
-                      <BookingProvider>
-                        <ToastProvider>
-                          <NavigationContainer>
-                            <RootNavigator />
-                          </NavigationContainer>
-                        </ToastProvider>
-                      </BookingProvider>
-                    </LocationProvider>
-                  </LibraryProvider>
-                </AuthProvider>
-              </AdminProvider>
-            </ThemeProvider>
-          </ErrorBoundary>
-        </GestureHandlerRootView>
-      </ClerkLoaded>
-    </ClerkProvider>
+
     <SafeAreaProvider>
       <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} tokenCache={tokenCache}>
         <ClerkLoaded>
