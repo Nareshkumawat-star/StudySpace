@@ -1,5 +1,5 @@
-import { create } from 'zustand'
-import { supabase } from '../config/supabase'
+import { create } from "zustand";
+import { supabase } from "../config/supabase";
 
 export const useLibraryStore = create((set, get) => ({
   floors: [],
@@ -12,70 +12,72 @@ export const useLibraryStore = create((set, get) => ({
 
   // Fetch all floors for a library
   fetchFloors: async (libraryId) => {
-    set({ isLoading: true })
+    set({ isLoading: true });
     try {
       const { data, error } = await supabase
-        .from('floors')
-        .select('*')
-        .eq('library_id', libraryId)
-        .eq('is_active', true)
-        .order('floor_number')
+        .from("floors")
+        .select("*")
+        .eq("library_id", libraryId)
+        .eq("is_active", true)
+        .order("floor_number");
 
-      if (error) throw error
-      set({ floors: data || [], isLoading: false })
-      return data
+      if (error) throw error;
+      set({ floors: data || [], isLoading: false });
+      return data;
     } catch (error) {
-      set({ error: error.message, isLoading: false })
-      return []
+      set({ error: error.message, isLoading: false });
+      return [];
     }
   },
 
   // Fetch rooms for a specific floor
   fetchRooms: async (libraryId, floorId = null) => {
-    set({ isLoading: true })
+    set({ isLoading: true });
     try {
       let query = supabase
-        .from('rooms')
-        .select('*, floor:floors(floor_number, floor_name)')
-        .eq('library_id', libraryId)
-        .eq('is_active', true)
+        .from("rooms")
+        .select("*, floor:floors(floor_number, floor_name)")
+        .eq("library_id", libraryId)
+        .eq("is_active", true);
 
       if (floorId) {
-        query = query.eq('floor_id', floorId)
+        query = query.eq("floor_id", floorId);
       }
 
-      const { data, error } = await query.order('room_name')
+      const { data, error } = await query.order("room_name");
 
-      if (error) throw error
-      set({ rooms: data || [], isLoading: false })
-      return data
+      if (error) throw error;
+      set({ rooms: data || [], isLoading: false });
+      return data;
     } catch (error) {
-      set({ error: error.message, isLoading: false })
-      return []
+      set({ error: error.message, isLoading: false });
+      return [];
     }
   },
 
   // Fetch seats for a specific room
   fetchSeats: async (libraryId, roomId = null) => {
-    set({ isLoading: true })
+    set({ isLoading: true });
     try {
       let query = supabase
-        .from('seats')
-        .select('*, room:rooms(room_name, floor_id)')
-        .eq('library_id', libraryId)
+        .from("seats")
+        .select("*, room:rooms(room_name, floor_id)")
+        .eq("library_id", libraryId);
 
       if (roomId) {
-        query = query.eq('room_id', roomId)
+        query = query.eq("room_id", roomId);
       }
 
-      const { data, error } = await query.order('row_number').order('column_number')
+      const { data, error } = await query
+        .order("row_number")
+        .order("column_number");
 
-      if (error) throw error
-      set({ seats: data || [], isLoading: false })
-      return data
+      if (error) throw error;
+      set({ seats: data || [], isLoading: false });
+      return data;
     } catch (error) {
-      set({ error: error.message, isLoading: false })
-      return []
+      set({ error: error.message, isLoading: false });
+      return [];
     }
   },
 
@@ -83,7 +85,7 @@ export const useLibraryStore = create((set, get) => ({
   addFloor: async (libraryId, floorData) => {
     try {
       const { data, error } = await supabase
-        .from('floors')
+        .from("floors")
         .insert({
           library_id: libraryId,
           floor_number: floorData.floor_number,
@@ -91,15 +93,19 @@ export const useLibraryStore = create((set, get) => ({
           is_active: true,
         })
         .select()
-        .single()
+        .single();
 
-      if (error) throw error
+      if (error) throw error;
 
-      const { floors } = get()
-      set({ floors: [...floors, data].sort((a, b) => a.floor_number - b.floor_number) })
-      return { data, error: null }
+      const { floors } = get();
+      set({
+        floors: [...floors, data].sort(
+          (a, b) => a.floor_number - b.floor_number,
+        ),
+      });
+      return { data, error: null };
     } catch (error) {
-      return { data: null, error: error.message }
+      return { data: null, error: error.message };
     }
   },
 
@@ -107,47 +113,53 @@ export const useLibraryStore = create((set, get) => ({
   addRoom: async (libraryId, floorId, roomData) => {
     try {
       const { data, error } = await supabase
-        .from('rooms')
+        .from("rooms")
         .insert({
           library_id: libraryId,
           floor_id: floorId,
           room_name: roomData.room_name,
           room_code: roomData.room_code,
-          room_type: roomData.room_type || 'Study Hall',
+          room_type: roomData.room_type || "Study Hall",
           capacity: roomData.capacity || 0,
           is_active: true,
         })
-        .select('*, floor:floors(floor_number, floor_name)')
-        .single()
+        .select("*, floor:floors(floor_number, floor_name)")
+        .single();
 
-      if (error) throw error
+      if (error) throw error;
 
-      const { rooms } = get()
-      set({ rooms: [...rooms, data] })
-      return { data, error: null }
+      const { rooms } = get();
+      set({ rooms: [...rooms, data] });
+      return { data, error: null };
     } catch (error) {
-      return { data: null, error: error.message }
+      return { data: null, error: error.message };
     }
   },
 
   // Create seats for a room (generate seat matrix)
-  createSeatsForRoom: async (libraryId, roomId, rows, columns, options = {}) => {
+  createSeatsForRoom: async (
+    libraryId,
+    roomId,
+    rows,
+    columns,
+    options = {},
+  ) => {
     try {
-      const seats = []
-      const { 
-        hasPower = false, 
-        isQuietZone = false, 
+      const seats = [];
+      const {
+        hasPower = false,
+        isQuietZone = false,
         hasLamp = false,
         hasErgoChair = false,
         hasWifi = false,
         wifiSpeed = null,
-        roomCode = '' 
-      } = options
+        roomCode = "",
+      } = options;
 
       for (let row = 1; row <= rows; row++) {
         for (let col = 1; col <= columns; col++) {
-          const rowLabel = String.fromCharCode(64 + row) // A, B, C...
-          const seatId = `${roomCode}${rowLabel}${col}`
+          const rowLabel = String.fromCharCode(64 + row); // A, B, C...
+          const seatId = `${roomCode}${rowLabel}${col}`;
           seats.push({
             id: seatId,
             label: `${rowLabel}${col}`,
@@ -157,36 +169,36 @@ export const useLibraryStore = create((set, get) => ({
             column_number: col,
             seat_number: (row - 1) * columns + col,
             floor: options.floor || 1,
-            zone: options.zone || 'General',
+            zone: options.zone || "General",
             has_power: hasPower,
             is_quiet_zone: isQuietZone,
             has_lamp: hasLamp,
             has_ergo_chair: hasErgoChair,
             has_wifi: hasWifi,
             wifi_speed: hasWifi ? wifiSpeed : null,
-            status: 'available',
+            status: "available",
             is_active: true,
-          })
+          });
         }
       }
 
       const { data, error } = await supabase
-        .from('seats')
-        .upsert(seats, { onConflict: 'id' })
-        .select()
+        .from("seats")
+        .upsert(seats, { onConflict: "id" })
+        .select();
 
-      if (error) throw error
+      if (error) throw error;
 
       // Update room capacity
       await supabase
-        .from('rooms')
+        .from("rooms")
         .update({ capacity: rows * columns })
-        .eq('id', roomId)
+        .eq("id", roomId);
 
-      await get().fetchSeats(libraryId, roomId)
-      return { data, error: null }
+      await get().fetchSeats(libraryId, roomId);
+      return { data, error: null };
     } catch (error) {
-      return { data: null, error: error.message }
+      return { data: null, error: error.message };
     }
   },
 
@@ -194,19 +206,19 @@ export const useLibraryStore = create((set, get) => ({
   updateSeatStatus: async (seatId, status) => {
     try {
       const { data, error } = await supabase
-        .from('seats')
+        .from("seats")
         .update({ status })
-        .eq('id', seatId)
+        .eq("id", seatId)
         .select()
-        .single()
+        .single();
 
-      if (error) throw error
+      if (error) throw error;
 
-      const { seats } = get()
-      set({ seats: seats.map(s => s.id === seatId ? data : s) })
-      return { data, error: null }
+      const { seats } = get();
+      set({ seats: seats.map((s) => (s.id === seatId ? data : s)) });
+      return { data, error: null };
     } catch (error) {
-      return { data: null, error: error.message }
+      return { data: null, error: error.message };
     }
   },
 
@@ -214,19 +226,19 @@ export const useLibraryStore = create((set, get) => ({
   toggleSeatActive: async (seatId, isActive) => {
     try {
       const { data, error } = await supabase
-        .from('seats')
+        .from("seats")
         .update({ is_active: isActive })
-        .eq('id', seatId)
+        .eq("id", seatId)
         .select()
-        .single()
+        .single();
 
-      if (error) throw error
+      if (error) throw error;
 
-      const { seats } = get()
-      set({ seats: seats.map(s => s.id === seatId ? data : s) })
-      return { data, error: null }
+      const { seats } = get();
+      set({ seats: seats.map((s) => (s.id === seatId ? data : s)) });
+      return { data, error: null };
     } catch (error) {
-      return { data: null, error: error.message }
+      return { data: null, error: error.message };
     }
   },
 
@@ -234,35 +246,32 @@ export const useLibraryStore = create((set, get) => ({
   deleteFloor: async (floorId) => {
     try {
       const { error } = await supabase
-        .from('floors')
+        .from("floors")
         .delete()
-        .eq('id', floorId)
+        .eq("id", floorId);
 
-      if (error) throw error
+      if (error) throw error;
 
-      const { floors } = get()
-      set({ floors: floors.filter(f => f.id !== floorId) })
-      return { error: null }
+      const { floors } = get();
+      set({ floors: floors.filter((f) => f.id !== floorId) });
+      return { error: null };
     } catch (error) {
-      return { error: error.message }
+      return { error: error.message };
     }
   },
 
   // Delete a room (cascade deletes seats)
   deleteRoom: async (roomId) => {
     try {
-      const { error } = await supabase
-        .from('rooms')
-        .delete()
-        .eq('id', roomId)
+      const { error } = await supabase.from("rooms").delete().eq("id", roomId);
 
-      if (error) throw error
+      if (error) throw error;
 
-      const { rooms } = get()
-      set({ rooms: rooms.filter(r => r.id !== roomId) })
-      return { error: null }
+      const { rooms } = get();
+      set({ rooms: rooms.filter((r) => r.id !== roomId) });
+      return { error: null };
     } catch (error) {
-      return { error: error.message }
+      return { error: error.message };
     }
   },
 
@@ -271,43 +280,57 @@ export const useLibraryStore = create((set, get) => ({
     try {
       const [seatsResult, bookingsResult, usersResult] = await Promise.all([
         supabase
-          .from('seats')
-          .select('status, is_active')
-          .eq('library_id', libraryId),
+          .from("seats")
+          .select("status, is_active")
+          .eq("library_id", libraryId),
         supabase
-          .from('bookings')
-          .select('status, checked_in, user_id')
-          .eq('library_id', libraryId)
-          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()),
+          .from("bookings")
+          .select("status, checked_in, user_id")
+          .eq("library_id", libraryId)
+          .gte(
+            "created_at",
+            new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          ),
         supabase
-          .from('bookings')
-          .select('user_id')
-          .eq('library_id', libraryId)
-          .eq('status', 'active')
-          .eq('checked_in', true),
-      ])
+          .from("bookings")
+          .select("user_id")
+          .eq("library_id", libraryId)
+          .eq("status", "active")
+          .eq("checked_in", true),
+      ]);
 
-      const seats = seatsResult.data || []
-      const todayBookings = bookingsResult.data || []
-      const activeBookings = usersResult.data || []
+      const seats = seatsResult.data || [];
+      const todayBookings = bookingsResult.data || [];
+      const activeBookings = usersResult.data || [];
 
       const stats = {
-        totalSeats: seats.filter(s => s.is_active !== false).length,
-        availableSeats: seats.filter(s => s.status === 'available' && s.is_active !== false).length,
-        occupiedSeats: seats.filter(s => s.status === 'occupied' && s.is_active !== false).length,
-        reservedSeats: seats.filter(s => s.status === 'reserved' && s.is_active !== false).length,
+        totalSeats: seats.filter((s) => s.is_active !== false).length,
+        availableSeats: seats.filter(
+          (s) => s.status === "available" && s.is_active !== false,
+        ).length,
+        occupiedSeats: seats.filter(
+          (s) => s.status === "occupied" && s.is_active !== false,
+        ).length,
+        reservedSeats: seats.filter(
+          (s) => s.status === "reserved" && s.is_active !== false,
+        ).length,
         todayBookings: todayBookings.length,
         checkedInUsers: activeBookings.length,
-        occupancyRate: seats.length > 0 
-          ? Math.round((seats.filter(s => s.status === 'occupied').length / seats.filter(s => s.is_active !== false).length) * 100) 
-          : 0,
-      }
+        occupancyRate:
+          seats.length > 0
+            ? Math.round(
+                (seats.filter((s) => s.status === "occupied").length /
+                  seats.filter((s) => s.is_active !== false).length) *
+                  100,
+              )
+            : 0,
+      };
 
-      set({ stats })
-      return stats
+      set({ stats });
+      return stats;
     } catch (error) {
-      set({ error: error.message })
-      return null
+      set({ error: error.message });
+      return null;
     }
   },
 
@@ -315,58 +338,64 @@ export const useLibraryStore = create((set, get) => ({
   fetchActiveStudents: async (libraryId) => {
     try {
       const { data, error } = await supabase
-        .from('bookings')
-        .select(`
+        .from("bookings")
+        .select(
+          `
           *,
           user:users(id, name, email, department, avatar_url),
           seat:seats(id, label, room_id)
-        `)
-        .eq('library_id', libraryId)
-        .eq('status', 'active')
-        .eq('checked_in', true)
-        .order('start_time', { ascending: false })
+        `,
+        )
+        .eq("library_id", libraryId)
+        .eq("status", "active")
+        .eq("checked_in", true)
+        .order("start_time", { ascending: false });
 
-      if (error) throw error
+      if (error) throw error;
 
-      set({ activeStudents: data || [] })
-      return data
+      set({ activeStudents: data || [] });
+      return data;
     } catch (error) {
-      set({ error: error.message })
-      return []
+      set({ error: error.message });
+      return [];
     }
   },
 
   // Subscribe to real-time seat updates
   subscribeToSeats: (libraryId) => {
     const channel = supabase
-      .channel('seats-changes')
+      .channel("seats-changes")
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: '*',
-          schema: 'public',
-          table: 'seats',
+          event: "*",
+          schema: "public",
+          table: "seats",
           filter: `library_id=eq.${libraryId}`,
         },
         (payload) => {
-          const { seats } = get()
-          if (payload.eventType === 'INSERT') {
-            set({ seats: [...seats, payload.new] })
-          } else if (payload.eventType === 'UPDATE') {
-            set({ seats: seats.map(s => s.id === payload.new.id ? payload.new : s) })
-          } else if (payload.eventType === 'DELETE') {
-            set({ seats: seats.filter(s => s.id !== payload.old.id) })
+          const { seats } = get();
+          if (payload.eventType === "INSERT") {
+            set({ seats: [...seats, payload.new] });
+          } else if (payload.eventType === "UPDATE") {
+            set({
+              seats: seats.map((s) =>
+                s.id === payload.new.id ? payload.new : s,
+              ),
+            });
+          } else if (payload.eventType === "DELETE") {
+            set({ seats: seats.filter((s) => s.id !== payload.old.id) });
           }
-        }
+        },
       )
-      .subscribe()
+      .subscribe();
 
     return () => {
-      supabase.removeChannel(channel)
-    }
+      supabase.removeChannel(channel);
+    };
   },
 
   clearError: () => {
-    set({ error: null })
+    set({ error: null });
   },
-}))
+}));

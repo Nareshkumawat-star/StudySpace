@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
-import { useAuthStore } from '../store/authStore'
-import { useLibraryStore } from '../store/libraryStore'
+import { useEffect, useState } from "react";
+import { useAuthStore } from "../store/authStore";
+import { useLibraryStore } from "../store/libraryStore";
 
 function StatCard({ title, value, subtitle, icon, color }) {
   return (
@@ -13,20 +13,38 @@ function StatCard({ title, value, subtitle, icon, color }) {
             <p className="text-sm text-slate-500 mt-1">{subtitle}</p>
           )}
         </div>
-        <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center`}>
-          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
+        <div
+          className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center`}
+        >
+          <svg
+            className="w-6 h-6 text-white"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d={icon}
+            />
           </svg>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function ActiveStudentRow({ student }) {
   const getInitials = (name) => {
-    return name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'
-  }
+    return (
+      name
+        ?.split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase() || "U"
+    );
+  };
 
   return (
     <tr className="hover:bg-slate-50">
@@ -36,69 +54,80 @@ function ActiveStudentRow({ student }) {
             {getInitials(student.user?.name)}
           </div>
           <div>
-            <p className="font-medium text-slate-900">{student.user?.name || 'Unknown'}</p>
+            <p className="font-medium text-slate-900">
+              {student.user?.name || "Unknown"}
+            </p>
             <p className="text-xs text-slate-500">{student.user?.email}</p>
           </div>
         </div>
       </td>
       <td className="px-4 py-3 text-sm text-slate-600">
-        {student.user?.department || '-'}
+        {student.user?.department || "-"}
       </td>
       <td className="px-4 py-3">
         <span className="px-2 py-1 bg-primary-100 text-primary-700 text-xs font-medium rounded-lg">
-          {student.seat?.label || 'N/A'}
+          {student.seat?.label || "N/A"}
         </span>
       </td>
       <td className="px-4 py-3 text-sm text-slate-600">
-        {new Date(student.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        {new Date(student.start_time).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
       </td>
       <td className="px-4 py-3 text-sm text-slate-600">
         {student.duration} min
       </td>
     </tr>
-  )
+  );
 }
 
 export default function Dashboard() {
-  const { library } = useAuthStore()
-  const { stats, activeStudents, fetchStats, fetchActiveStudents, subscribeToSeats } = useLibraryStore()
-  const [isLoading, setIsLoading] = useState(true)
+  const { library } = useAuthStore();
+  const {
+    stats,
+    activeStudents,
+    fetchStats,
+    fetchActiveStudents,
+    subscribeToSeats,
+  } = useLibraryStore();
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (library?.id) {
       const loadData = async () => {
-        setIsLoading(true)
+        setIsLoading(true);
         await Promise.all([
           fetchStats(library.id),
-          fetchActiveStudents(library.id)
-        ])
-        setIsLoading(false)
-      }
-      loadData()
+          fetchActiveStudents(library.id),
+        ]);
+        setIsLoading(false);
+      };
+      loadData();
 
       // Subscribe to real-time updates
-      const unsubscribe = subscribeToSeats(library.id)
-      return () => unsubscribe?.()
+      const unsubscribe = subscribeToSeats(library.id);
+      return () => unsubscribe?.();
     }
-  }, [library?.id])
+  }, [library?.id]);
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
     if (library?.id) {
       const interval = setInterval(() => {
-        fetchStats(library.id)
-        fetchActiveStudents(library.id)
-      }, 30000)
-      return () => clearInterval(interval)
+        fetchStats(library.id);
+        fetchActiveStudents(library.id);
+      }, 30000);
+      return () => clearInterval(interval);
     }
-  }, [library?.id])
+  }, [library?.id]);
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="animate-spin w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full"></div>
       </div>
-    )
+    );
   }
 
   return (
@@ -106,8 +135,12 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 font-display">Dashboard</h1>
-          <p className="text-slate-500">Welcome back! Here's your library overview.</p>
+          <h1 className="text-2xl font-bold text-slate-900 font-display">
+            Dashboard
+          </h1>
+          <p className="text-slate-500">
+            Welcome back! Here's your library overview.
+          </p>
         </div>
         <div className="text-sm text-slate-500">
           Last updated: {new Date().toLocaleTimeString()}
@@ -150,7 +183,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <div className="lg:col-span-1 bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
           <h3 className="font-semibold text-slate-900 mb-4">Library Status</h3>
-          
+
           {/* Occupancy Ring */}
           <div className="flex items-center justify-center mb-4">
             <div className="relative w-32 h-32">
@@ -167,7 +200,13 @@ export default function Dashboard() {
                   cx="64"
                   cy="64"
                   r="56"
-                  stroke={stats?.occupancyRate > 80 ? '#ef4444' : stats?.occupancyRate > 50 ? '#f59e0b' : '#22c55e'}
+                  stroke={
+                    stats?.occupancyRate > 80
+                      ? "#ef4444"
+                      : stats?.occupancyRate > 50
+                        ? "#f59e0b"
+                        : "#22c55e"
+                  }
                   strokeWidth="12"
                   fill="none"
                   strokeDasharray={`${(stats?.occupancyRate || 0) * 3.52} 352`}
@@ -175,7 +214,9 @@ export default function Dashboard() {
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-3xl font-bold text-slate-900">{stats?.occupancyRate || 0}%</span>
+                <span className="text-3xl font-bold text-slate-900">
+                  {stats?.occupancyRate || 0}%
+                </span>
                 <span className="text-xs text-slate-500">Occupancy</span>
               </div>
             </div>
@@ -208,32 +249,48 @@ export default function Dashboard() {
 
         {/* Library Info */}
         <div className="lg:col-span-2 bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-          <h3 className="font-semibold text-slate-900 mb-4">Library Information</h3>
-          
+          <h3 className="font-semibold text-slate-900 mb-4">
+            Library Information
+          </h3>
+
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Name</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
+                Name
+              </p>
               <p className="font-medium text-slate-900">{library?.name}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Address</p>
-              <p className="font-medium text-slate-900">{library?.address || 'Not set'}</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
+                Address
+              </p>
+              <p className="font-medium text-slate-900">
+                {library?.address || "Not set"}
+              </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Opening Hours</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
+                Opening Hours
+              </p>
               <p className="font-medium text-slate-900">
                 {library?.opening_time} - {library?.closing_time}
               </p>
             </div>
             <div>
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Geofence Radius</p>
-              <p className="font-medium text-slate-900">{library?.radius_meters}m</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
+                Geofence Radius
+              </p>
+              <p className="font-medium text-slate-900">
+                {library?.radius_meters}m
+              </p>
             </div>
           </div>
 
           {library?.description && (
             <div className="mt-4 pt-4 border-t border-slate-100">
-              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Description</p>
+              <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">
+                Description
+              </p>
               <p className="text-slate-600">{library.description}</p>
             </div>
           )}
@@ -248,11 +305,21 @@ export default function Dashboard() {
             {activeStudents.length} checked in
           </span>
         </div>
-        
+
         {activeStudents.length === 0 ? (
           <div className="p-8 text-center">
-            <svg className="w-12 h-12 text-slate-300 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            <svg
+              className="w-12 h-12 text-slate-300 mx-auto mb-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+              />
             </svg>
             <p className="text-slate-500">No students currently checked in</p>
           </div>
@@ -261,11 +328,21 @@ export default function Dashboard() {
             <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Student</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Department</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Seat</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Check-in</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Duration</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Student
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Department
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Seat
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Check-in
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                    Duration
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -278,5 +355,5 @@ export default function Dashboard() {
         )}
       </div>
     </div>
-  )
+  );
 }

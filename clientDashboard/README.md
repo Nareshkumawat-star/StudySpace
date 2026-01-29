@@ -47,6 +47,7 @@ Before using the dashboard, run the migration script in Supabase:
 2. Run `App/supabase/migrations/client_dashboard.sql`
 
 This creates the following tables:
+
 - `library_clients` - Client authentication credentials
 - `floors` - Library floor structure
 - `rooms` - Rooms/halls within floors
@@ -99,7 +100,7 @@ The dashboard uses the same Supabase instance as the mobile app. Key tables:
 - `libraries` - Library information
 - `library_clients` - Dashboard authentication
 - `floors` - Floor configuration
-- `rooms` - Room/hall configuration  
+- `rooms` - Room/hall configuration
 - `seats` - Individual seat data
 - `bookings` - User bookings
 - `users` - Student information
